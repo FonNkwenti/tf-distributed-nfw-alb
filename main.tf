@@ -25,7 +25,7 @@ resource "aws_internet_gateway" "main" {
 }
 
 ################################################################################
-# Public Subnets — ALB + NAT Gateways
+# Public Subnets — ALB
 ################################################################################
 
 resource "aws_subnet" "public" {
@@ -74,7 +74,7 @@ resource "aws_subnet" "private" {
 }
 
 ################################################################################
-# Elastic IPs for NAT Gateways
+# Elastic IPs for Regional NAT Gateway
 ################################################################################
 
 resource "aws_eip" "nat" {
@@ -87,18 +87,25 @@ resource "aws_eip" "nat" {
 }
 
 ################################################################################
-# NAT Gateways — one per AZ in the public subnets
+# Regional NAT Gateway — single gateway serving all AZs
 ################################################################################
 
 resource "aws_nat_gateway" "main" {
-  count = length(var.availability_zones)
+  connectivity_type = "public"
+  availability_mode = "regional"
 
-  allocation_id = aws_eip.nat[count.index].id
-  subnet_id     = aws_subnet.public[count.index].id
+  dynamic "availability_zone_address" {
+    for_each = range(length(var.availability_zones))
+    content {
+      allocation_ids    = [aws_eip.nat[availability_zone_address.value].id]
+      availability_zone = var.availability_zones[availability_zone_address.value]
+    }
+  }
 
   tags = {
-    Name = "${var.project_name}-natgw-${var.availability_zones[count.index]}"
+    Name = "${var.project_name}-natgw-regional"
   }
 
   depends_on = [aws_internet_gateway.main]
 }
+

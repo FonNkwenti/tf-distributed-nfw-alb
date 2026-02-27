@@ -33,6 +33,6 @@ output "web_server_instance_ids" {
 }
 
 output "nat_gateway_public_ips" {
-  description = "Public IPs of the NAT Gateways"
+  description = "Public IPs of the Regional NAT Gateway (one per AZ)"
   value       = aws_eip.nat[*].public_ip
 }

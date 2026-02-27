@@ -1,4 +1,4 @@
-# Deploying AWS Network Firewall in a Distributed Architecture with an ALB
+# Deploying AWS Network Firewall in a Distributed Architecture with an ALB (v3)
 
 > A step-by-step guide to deploying AWS Network Firewall in a **distributed, multi-AZ** architecture using Terraform — with an Application Load Balancer fronting web servers in private subnets.
 
@@ -20,20 +20,11 @@
 
 ## Introduction
 
-[AWS Network Firewall](https://aws.amazon.com/network-firewall/) is a managed network firewall and intrusion detection/prevention service that allows you to filter traffic at the perimeter of your VPC. It supports both stateless and stateful inspection, making it ideal for enforcing security policies on all traffic entering or leaving your VPC.
+Building a resilient network on AWS starts with the fundamental security layers of Amazon VPC. While tools like Security Groups and Network ACLs are indispensable for basic traffic filtering, they are often insufficient for modern compliance standards. To truly secure high-value workloads, teams need more than just port-based rules; they require deep packet inspection (DPI), application protocol detection, and the ability to enforce strict domain-based filtering.
 
-In this blog post we deploy Network Firewall in a **distributed architecture** — firewall endpoints are deployed into each Availability Zone alongside your workloads. This is the AWS-recommended pattern for production because it:
+For these advanced requirements, we use **AWS Network Firewall**—a stateful, managed service designed for scale and high-performance security. While basic implementations are straightforward, this post focuses on the **Distributed Deployment Model (v3)**. We will walk through how to integrate an Application Load Balancer (ALB) with firewall endpoints in every Availability Zone to ensure all traffic is inspected while eliminating cross-AZ data transfer costs. 
 
-- **Eliminates cross-AZ traffic costs** — traffic stays within the same AZ.
-- **Provides high availability** — an endpoint failure in one AZ does not affect the other.
-- **Simplifies routing** — each AZ has its own firewall endpoint and route tables.
-
-We enhance the original [AWS Network Firewall demo](https://github.com/aws-samples/aws-network-firewall-demo) by:
-
-1. Spanning **two Availability Zones** for high availability.
-2. Adding an **Application Load Balancer** (ALB) to distribute traffic across web servers.
-3. Placing web servers in **private subnets** (no public IPs) for defense-in-depth.
-4. Rewriting everything in **Terraform** for Infrastructure as Code best practices.
+Using Terraform, we’ll demonstrate how to automate the complex "routing magic" required to place the firewall directly into the traffic path of your private web servers, providing a robust template for defense-in-depth.
 
 ---
 
@@ -66,11 +57,6 @@ We enhance the original [AWS Network Firewall demo](https://github.com/aws-sampl
               │  10.0.10.0/24  │  │  10.0.20.0/24     │
               │  Web Server    │  │  Web Server        │
               └────────────────┘  └──────────────────┘
-
-         ┌──────────────────────────────────────────┐
-         │  Regional NAT Gateway (spans both AZs)   │
-         │  EIP per AZ for outbound internet access │
-         └──────────────────────────────────────────┘
 ```
 
 ### Subnet Layout
@@ -109,18 +95,16 @@ We enhance the original [AWS Network Firewall demo](https://github.com/aws-sampl
 
 1. Web server sends outbound traffic (e.g., `dnf update`).
 2. The **private route table** sends `0.0.0.0/0` to the **Regional NAT Gateway**.
-3. The NAT Gateway performs source NAT using the EIP assigned to the matching AZ.
-4. The **public route table** sends `0.0.0.0/0` to the **NFW endpoint** in the same AZ.
-5. The NFW endpoint **inspects** the outbound traffic.
-6. The **firewall route table** sends `0.0.0.0/0` to the **Internet Gateway**.
-7. Traffic exits through the Regional NAT Gateway's Elastic IP.
+3. The **public route table** sends `0.0.0.0/0` to the **NFW endpoint** in the same AZ.
+4. The NFW endpoint **inspects** the outbound traffic.
+5. The **firewall route table** sends `0.0.0.0/0` to the **Internet Gateway**.
+6. Traffic exits through the Regional NAT Gateway's Elastic IP.
 
 ---
 
 ## Prerequisites
 
-- **Terraform** >= 1.5.0 installed ([download](https://developer.hashicorp.com/terraform/downloads))
-- **AWS Provider** >= 6.24 (Regional NAT Gateway support)
+- **Terraform** >= 1.5 installed ([download](https://developer.hashicorp.com/terraform/downloads))
 - **AWS CLI** configured with credentials that have sufficient permissions
 - An **AWS account** with Network Firewall enabled in the target region
 
@@ -199,7 +183,7 @@ aws ssm start-session --target $INSTANCE_ID
 From the session:
 
 ```bash
-# Test outbound connectivity (goes through NFW → NAT GW → IGW)
+# Test outbound connectivity (goes through NFW → Regional NAT GW → IGW)
 curl -I https://aws.amazon.com
 ```
 
@@ -270,7 +254,7 @@ terraform destroy
 ├── ec2.tf           # Web servers, IAM, security groups
 ├── logging.tf       # CloudWatch logs, VPC flow logs
 ├── outputs.tf       # Output values
-└── README.md        # This blog post
+└── README.md        # Technical documentation
 ```
 
 ---
