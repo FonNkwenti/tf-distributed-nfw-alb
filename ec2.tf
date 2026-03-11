@@ -72,19 +72,21 @@ resource "aws_security_group" "web" {
 }
 
 ################################################################################
-# EC2 Web Servers — one per AZ in private subnets
+# Launch Template for Web Servers
 ################################################################################
 
-resource "aws_instance" "web" {
-  count = length(var.availability_zones)
+resource "aws_launch_template" "web" {
+  name_prefix   = "${var.project_name}-web-"
+  image_id      = data.aws_ssm_parameter.al2023.value
+  instance_type = var.instance_type
 
-  ami                    = data.aws_ssm_parameter.al2023.value
-  instance_type          = var.instance_type
-  subnet_id              = aws_subnet.private[count.index].id
   vpc_security_group_ids = [aws_security_group.web.id]
-  iam_instance_profile   = aws_iam_instance_profile.web_server.name
 
-  user_data_base64 = base64encode(<<-USERDATA
+  iam_instance_profile {
+    name = aws_iam_instance_profile.web_server.name
+  }
+
+  user_data = base64encode(<<-USERDATA
     #!/bin/bash
     dnf update -y
     dnf install -y httpd
@@ -108,24 +110,51 @@ resource "aws_instance" "web" {
   USERDATA
   )
 
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name = "${var.project_name}-web"
+    }
+  }
+
   tags = {
-    Name = "${var.project_name}-web-${var.availability_zones[count.index]}"
+    Name = "${var.project_name}-web-lt"
+  }
+}
+
+################################################################################
+# Auto Scaling Group — spans private subnets across AZs
+################################################################################
+
+resource "aws_autoscaling_group" "web" {
+  name_prefix         = "${var.project_name}-web-"
+  min_size            = var.asg_min_size
+  max_size            = var.asg_max_size
+  desired_capacity    = var.asg_desired_capacity
+  vpc_zone_identifier = aws_subnet.private[*].id
+  target_group_arns   = [aws_lb_target_group.web.arn]
+  health_check_type   = "ELB"
+
+  launch_template {
+    id      = aws_launch_template.web.id
+    version = "$Latest"
+  }
+
+  instance_refresh {
+    strategy = "Rolling"
+    preferences {
+      min_healthy_percentage = 50
+    }
+  }
+
+  tag {
+    key                 = "Name"
+    value               = "${var.project_name}-web"
+    propagate_at_launch = true
   }
 
   depends_on = [
     aws_nat_gateway.main,
     aws_route.private_to_natgw
   ]
-}
-
-################################################################################
-# Register instances with ALB target group
-################################################################################
-
-resource "aws_lb_target_group_attachment" "web" {
-  count = length(var.availability_zones)
-
-  target_group_arn = aws_lb_target_group.web.arn
-  target_id        = aws_instance.web[count.index].id
-  port             = 80
 }

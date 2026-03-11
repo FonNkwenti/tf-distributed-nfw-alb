@@ -27,9 +27,9 @@ output "firewall_endpoint_ids" {
   value       = local.firewall_endpoint_ids
 }
 
-output "web_server_instance_ids" {
-  description = "EC2 instance IDs of the web servers"
-  value       = aws_instance.web[*].id
+output "asg_name" {
+  description = "Name of the web server Auto Scaling Group"
+  value       = aws_autoscaling_group.web.name
 }
 
 output "nat_gateway_public_ips" {
